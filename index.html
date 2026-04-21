@@ -227,11 +227,11 @@ function pickTransitParkTK(power) {
     nextMode: OCC下段指示模式（例如「洗車連結模式」、「ESS模式」、「機廠模式」、「洗車連結模式及機廠模式」）
     nextLoc: OCC下段指示目的地
     nextDo:  抵達後要做什麼（例如「升弓回報」、「投入ESS模式回報」、「停妥將列車關機」）
-    confirm: OCC要求確認的項目陣列，預設=["前方號誌開通","轉轍器方位正確","臨軌無列車","軌道淨空"]
+    confirm: OCC要求確認的項目陣列，預設=["前方號誌開通","轉轍器方位正確","鄰軌無列車","軌道淨空"]
     isFinal: 最後停妥點，無下段指令
   }
 */
-const DEFAULT_CONFIRM = ["前方號誌開通","轉轍器方位正確","臨軌無列車","軌道淨空"];
+const DEFAULT_CONFIRM = ["前方號誌開通","轉轍器方位正確","鄰軌無列車","軌道淨空"];
 const STARTUP_CONFIRM = []; // 起始動車前準備無「確認」項
 const ENTER_MAINT_CONFIRM = ["前方鐵門開啟","軌道淨空"]; // 維修廠棚外進入維修軌時
 
@@ -520,25 +520,28 @@ function fillNextInstruction(cur, nxt, fromA, toA) {
     cur.nextDo = "切換機廠模式回報";
     cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
   } else if (nxt._maintDepShed) {
-    // 維修出廠：至駐車場棚外升弓並完成換端
+    // 維修出廠：自維修內出發 → 駐車場棚外升弓並完成換端（離開維修有出口號誌）
     cur.nextDo = "停妥升弓並完成換端回報";
-    cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
-  } else if (nxt._maintToParkShed) {
-    // 維修 → 駐車場 直達：至目標駐車場棚外升弓
-    cur.nextDo = "停妥升弓回報";
-    cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
-  } else if (nxt._transit && /廠棚外$/.test(nxt.loc)) {
-    // 轉換軌 → 維修 的中繼駐車場棚外（已升弓）
-    cur.nextDo = "停妥回報";
     cur.confirm = ["前方號誌開通","轉轍器方位正確","鄰軌無列車","軌道淨空"];
+  } else if (nxt._maintToParkShed) {
+    // 維修 → 駐車場 直達：自維修內出發 → 目標駐車場棚外升弓（離開維修有出口號誌）
+    cur.nextDo = "停妥升弓回報";
+    cur.confirm = ["前方號誌開通","轉轍器方位正確","鄰軌無列車","軌道淨空"];
+  } else if (nxt._transit && /廠棚外$/.test(nxt.loc)) {
+    // 轉換軌 → 5km 牌 → 駐車場棚外：駐車場棚外本身無號誌
+    cur.nextDo = "停妥回報";
+    cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
   } else if (nxt._beforeMaint) {
+    // 進入維修棚外：維修棚外入口有號誌
     cur.nextDo = "投入ESS模式回報";
-    // 進維修棚外確認項
-    cur.confirm = ["前方號誌開通","轉轍器方位正確","臨軌無列車","軌道淨空"];
+    cur.confirm = ["前方號誌開通","轉轍器方位正確","鄰軌無列車","軌道淨空"];
   } else if (nxt._beforePark && /投入ESS/.test(nxt.report)) {
     cur.nextDo = "投入ESS模式回報";
+    cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
   } else if (nxt._beforePark) {
+    // 駐車場棚外本身無號誌
     cur.nextDo = "停妥回報";
+    cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
   } else if (nxt.isFinal && toA === "park") {
     cur.nextDo = "停妥將列車關機";
     // 進入最終駐車位：OCC 確認項加「鐵門/位置號牌」
