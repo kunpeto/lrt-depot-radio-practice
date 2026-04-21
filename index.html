@@ -278,21 +278,16 @@ function buildPoints(fromA, fromD, toA, toD, power) {
       extra: "雙端電池(80/80%)"
     });
   } else if (fromA === "trans") {
-    // 轉換軌起：由正線進入，已停妥並完成機廠模式/G01頻道切換
+    // 轉換軌起：由正線進入
+    // 目的地為洗車軌 → 於轉換軌切洗車連結模式（維持升弓）
+    // 其餘進機廠目的地 → 於轉換軌切機廠模式
+    const isToWash = (toA === "wash");
     pts.push({
       loc: fromD,
-      report: `已停妥${fromD}，切換機廠模式及G01頻道完成`,
-      // 若目的地為洗車軌，需於此先降弓投ESS 再行駛
-      _occOnlyEssSwitch: (toA === "wash")
+      report: isToWash
+        ? `已停妥${fromD}，切換洗車連結模式及G01頻道完成`
+        : `已停妥${fromD}，切換機廠模式及G01頻道完成`
     });
-    if (toA === "wash") {
-      pts.push({
-        loc: fromD,
-        report: "已降弓並投入ESS模式",
-        extra: "雙端電池(80/80%)",
-        _essSwitched: true
-      });
-    }
   } else if (fromA === "wash") {
     // 洗車軌起（洗車完畢後）
     pts.push({
@@ -499,14 +494,6 @@ function fillNextInstruction(cur, nxt, fromA, toA) {
     cur.confirm = STARTUP_CONFIRM;
     return;
   }
-  // 特例：_occOnlyEssSwitch 段只要求「降弓投入ESS模式」回報（同位置切模式）
-  if (cur._occOnlyEssSwitch) {
-    cur.nextMode = null;
-    cur.nextLoc = null;
-    cur.nextDo = "降弓投入ESS模式";
-    cur.confirm = [];
-    return;
-  }
   cur.nextLoc = nxt.loc;
 
   // 模式判定
@@ -524,7 +511,7 @@ function fillNextInstruction(cur, nxt, fromA, toA) {
   } else if (isTransLoc(nxt.loc)) {
     cur.nextMode = "機廠模式";
   } else if (nxt.loc === "TK301") {
-    cur.nextMode = cur._essSwitched ? "ESS模式及洗車連結模式" : "洗車連結模式";
+    cur.nextMode = "洗車連結模式";
   } else if (/^P\d\/\d$/.test(nxt.loc) || /外側位置$/.test(nxt.loc) || /廠棚外$/.test(nxt.loc)) {
     cur.nextMode = "洗車連結模式";
   } else if (nxt.loc === "正線") {
@@ -620,11 +607,11 @@ function makeChunks(trainId, pts) {
     const confirmStr = (cur.confirm && cur.confirm.length > 0) ? `請${trainId}車確認${cur.confirm.join("、")}，` : "";
     const driveStr = (cur.nextMode && cur.nextLoc) ? `${modeStr}行駛至${cur.nextLoc}，` : "";
     const doStr = cur.nextDo ? `${cur.nextDo}` : "";
-    const occReply = (cur._occOnlyPrep || cur._occOnlyEssSwitch)
+    const occReply = cur._occOnlyPrep
       ? `OCC收到，${trainId}車，${cur.report}，請${trainId}車${cur.nextDo}回報。通話完畢。`
       : `OCC收到，${trainId}車，${cur.report}${extraStr}，${confirmStr}${driveStr}${doStr}${doStr.endsWith("回報")?"":"回報"}。OVER`;
 
-    const readbackBody = (cur._occOnlyPrep || cur._occOnlyEssSwitch)
+    const readbackBody = cur._occOnlyPrep
       ? `${cur.nextDo}回報`
       : `${(cur.confirm&&cur.confirm.length>0)?"確認"+cur.confirm.join("、")+"，":""}${driveStr}${doStr}${doStr.endsWith("回報")?"":"回報"}`;
     const readback = `${trainId}車收到，${readbackBody}，通話完畢。`;
