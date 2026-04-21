@@ -201,6 +201,14 @@ function parkTK(pos) { return "TK20" + pos[1]; }  // P3/2 → TK203
 function randTrans() { return Math.random()<0.5 ? "轉換軌上行" : "轉換軌下行"; }
 function mainTrans(toD) { return toD.includes("上行") ? "轉換軌上行" : "轉換軌下行"; }
 function isTransLoc(s) { return s==="轉換軌上行" || s==="轉換軌下行"; }
+function pickTransitP4(power) {
+  // 選一條有電的駐車軌 P_/4 作為中繼換端點
+  const all = [];
+  if (power !== "all_off" && power !== "A_off") all.push("P1/4","P2/4");
+  if (power !== "all_off" && power !== "B_off") all.push("P3/4","P4/4");
+  if (all.length === 0) all.push("P3/4"); // 全斷電情境預設
+  return all[Math.floor(Math.random()*all.length)];
+}
 
 /* ================== 建立回報點序列 ================== */
 /*
@@ -302,7 +310,9 @@ function buildPoints(fromA, fromD, toA, toD, power) {
   const washToPark = (fromA==="wash" && toA==="park");
   // 已在轉換軌就不需再加一個轉換軌中繼點
   const alreadyOnTrans = (fromA === "trans");
-  const needTransferTrack = !(directParkMaint || washToPark || alreadyOnTrans);
+  // 維修↔維修 換軌只需經駐車場 P_/4，不必到轉換軌
+  const directMaintMaint = (fromA === "maint" && toA === "maint");
+  const needTransferTrack = !(directParkMaint || washToPark || alreadyOnTrans || directMaintMaint);
 
   let transTK = null;
   if (needTransferTrack) {
@@ -316,20 +326,40 @@ function buildPoints(fromA, fromD, toA, toD, power) {
   //      但 OCC 實務未必分段指派此點，故與下一段合併為「行駛至轉換軌」）
   //      為對話真實性，這裡不再額外拆點。
 
-  /* ---------- 4. 轉換軌點（若經過） ---------- */
-  if (needTransferTrack) {
+  /* ---------- 3.5 維修出發時，先到駐車場 P_/4 換端 ---------- */
+  // 維修 → 轉換軌/正線/維修：出棚外升弓後，先到駐車場 P_/4 換端（若目標在另一側）
+  const transitFromMaint = (fromA === "maint" && (toA === "trans" || toA === "main" || toA === "maint"));
+  if (transitFromMaint) {
+    const zone = pickTransitP4(power);
+    pts.push({
+      loc: zone,
+      report: `已停妥${zone}並完成換端`,
+      _transit: true,
+      _needFlip: true
+    });
+  }
+
+  /* ---------- 4. 轉換軌點（若經過，且非目的地） ---------- */
+  if (needTransferTrack && toA !== "trans") {
     const toMain = (toA === "main");
-    // 判斷抵達轉換軌時的回報
     let transReport = `已停妥${transTK}`;
-    let transExtra = null;
-    // 是否換端：若不是出正線，則皆需換端
-    const needFlip = !toMain;
-    if (needFlip) transReport += "並完成換端";
+    if (!toMain) transReport += "並完成換端";
     pts.push({
       loc: transTK,
       report: transReport,
       _afterTrans: true,
       _toMain: toMain
+    });
+  }
+
+  /* ---------- 4.5 轉換軌 → 維修：轉換軌後需先經駐車場 P_/4 ---------- */
+  const transitFromTransToMaint = (fromA === "trans" && toA === "maint");
+  if (transitFromTransToMaint) {
+    const zone = pickTransitP4(power);
+    pts.push({
+      loc: zone,
+      report: `已停妥${zone}`,
+      _transit: true
     });
   }
 
@@ -408,8 +438,8 @@ function insertSpeedLimitPoints(pts) {
     const cur = pts[i];
     const nxt = pts[i+1];
     if (!nxt) continue;
-    // 往機廠方向：轉換軌 → 棚外（駐車/維修），中間插入5公里速限牌
-    if (isTransLoc(cur.loc) && /廠棚外$/.test(nxt.loc)) {
+    // 往機廠方向：轉換軌 → 棚外/P_/4，中間插入5公里速限牌
+    if (isTransLoc(cur.loc) && (/廠棚外$/.test(nxt.loc) || /^P\d\/4$/.test(nxt.loc))) {
       out.push({
         loc: "5公里速限牌",
         report: "已停妥5公里速限牌，切換洗車連結模式完成",
@@ -494,9 +524,9 @@ function fillNextInstruction(cur, nxt, fromA, toA) {
     cur.nextDo = "進入洗車機洗車";
     cur.confirm = ["前方號誌開通","轉轍器方位正確","洗車機雙燈綠燈"];
   } else if (/^P\d\/4$/.test(nxt.loc)) {
-    cur.nextDo = "停妥回報";
-    // 駐車場內行駛：通常 OCC 不要求複雜確認
-    cur.confirm = [];
+    cur.nextDo = nxt._needFlip ? "停妥並換端回報" : "停妥回報";
+    // 駐車場內/出棚外行駛：僅須確認方位/淨空
+    cur.confirm = nxt._transit ? ["轉轍器方位正確","鄰軌無列車","軌道淨空"] : [];
   } else if (isTransLoc(nxt.loc)) {
     const toMain = (toA === "main");
     cur.nextDo = toMain ? "切換主線模式及All Station頻道後回報" : "停妥後換端回報";
