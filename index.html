@@ -543,9 +543,9 @@ function fillNextInstruction(cur, nxt, fromA, toA) {
     cur.nextDo = "停妥回報";
     cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
   } else if (nxt.isFinal && toA === "park") {
+    // 進入駐車位（從棚外往內），無號誌
     cur.nextDo = "停妥將列車關機";
-    // 進入最終駐車位：OCC 確認項加「鐵門/位置號牌」
-    cur.confirm = ["前方號誌開通","轉轍器方位正確","目標駐車位號牌"];
+    cur.confirm = ["轉轍器方位正確","目標駐車位號牌"];
   } else if (nxt.isFinal && toA === "maint") {
     cur.nextDo = "停妥將列車關機";
     cur.confirm = ["前方鐵門開啟","軌道淨空"];
