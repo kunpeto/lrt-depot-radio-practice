@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
+<title>淡海機廠調車無線電練習</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    line-height: 1.65;
+    padding: 12px;
+    font-size: 15px;
+  }
+  h1 {
+    font-size: 19px;
+    margin: 6px 0 14px;
+    text-align: center;
+    color: #60a5fa;
+  }
+  .card {
+    background: #1e293b;
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 12px;
+    border: 1px solid #334155;
+  }
+  .card h2 {
+    font-size: 15px;
+    margin: 0 0 10px;
+    color: #93c5fd;
+    border-bottom: 1px solid #334155;
+    padding-bottom: 6px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    color: #94a3b8;
+    margin-bottom: 4px;
+  }
+  select, button, input {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 15px;
+    border-radius: 8px;
+    border: 1px solid #475569;
+    background: #0f172a;
+    color: #e2e8f0;
+    margin-bottom: 10px;
+    font-family: inherit;
+  }
+  button {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 13px;
+    font-size: 16px;
+  }
+  button:active { background: #1d4ed8; }
+  button:disabled { background: #475569; border-color: #475569; opacity: 0.6; cursor: not-allowed; }
+  button.secondary { background: #475569; border-color: #475569; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  .chunk {
+    background: #0f172a;
+    border-left: 3px solid #3b82f6;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .chunk.final { border-left-color: #10b981; }
+  .chunk-title {
+    font-size: 13px;
+    color: #fbbf24;
+    font-weight: bold;
+    margin-bottom: 8px;
+  }
+  .line {
+    padding: 6px 0 6px 56px;
+    position: relative;
+    border-top: 1px dashed #334155;
+  }
+  .line:first-of-type { border-top: none; }
+  .line .who {
+    position: absolute;
+    left: 0;
+    top: 6px;
+    font-weight: bold;
+    width: 52px;
+    font-size: 13px;
+  }
+  .line.driver .who { color: #60a5fa; }
+  .line.occ .who { color: #fb923c; }
+  .line .text { font-size: 14.5px; }
+  .hint {
+    background: #422006;
+    border-left: 3px solid #f59e0b;
+    padding: 8px 10px;
+    margin-top: 8px;
+    font-size: 13px;
+    border-radius: 4px;
+    color: #fed7aa;
+  }
+  .error {
+    background: #450a0a;
+    border: 1px solid #dc2626;
+    color: #fecaca;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+  }
+  .small { font-size: 12px; color: #94a3b8; }
+  .progress {
+    font-size: 13px;
+    color: #94a3b8;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1>淡海機廠調車無線電練習</h1>
+
+<div class="card">
+  <h2>① 機廠架空線狀態</h2>
+  <select id="powerState">
+    <option value="normal">正常（A、B 區皆有電）</option>
+    <option value="A_off">A 區斷電（TK201+TK202）</option>
+    <option value="B_off">B 區斷電（TK203+TK204）</option>
+    <option value="all_off">全區斷電</option>
+  </select>
+</div>
+
+<div class="card">
+  <h2>② 車號與起訖點</h2>
+  <label>車號</label>
+  <input id="trainId" type="text" value="101" maxlength="4" inputmode="numeric">
+  <div class="row">
+    <div>
+      <label>起點（大區）</label>
+      <select id="fromArea"></select>
+    </div>
+    <div>
+      <label>起點（細項）</label>
+      <select id="fromDetail"></select>
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <label>目的地（大區）</label>
+      <select id="toArea"></select>
+    </div>
+    <div>
+      <label>目的地（細項）</label>
+      <select id="toDetail"></select>
+    </div>
+  </div>
+</div>
+
+<button id="genBtn">產生調車程序</button>
+
+<div id="result"></div>
+
+<script>
+/* ================== 地點資料 ================== */
+const AREAS = {
+  park:   { label: "駐車區", items: [
+    "P1/1","P1/2","P1/3","P1/4",
+    "P2/1","P2/2","P2/3","P2/4",
+    "P3/1","P3/2","P3/3","P3/4",
+    "P4/1","P4/2","P4/3","P4/4"
+  ]},
+  maint:  { label: "維修工廠", items: ["TK101","TK102","TK103","TK104","TK105","TK106","TK107"] },
+  trans:  { label: "轉換軌", items: ["轉換軌上行","轉換軌下行"] },
+  wash:   { label: "洗車軌", items: ["TK301"] },
+  main:   { label: "正線（出機廠）", items: ["正線上行（往 V11 一月台）","正線下行（往 V11 二月台）"] }
+};
+const FROM_AREAS = ["park","maint","trans","wash"];
+const TO_AREAS   = ["park","maint","trans","wash","main"];
+
+/* ================== 工具 ================== */
+function parkZone(pos) { return (pos[1]==="1"||pos[1]==="2") ? "A" : "B"; }
+function isNoPower(area, detail, power) {
+  if (area==="maint") return true;
+  if (area==="park") {
+    if (detail==="P1/1") return true;
+    const z = parkZone(detail);
+    if (power==="all_off") return true;
+    if (power==="A_off" && z==="A") return true;
+    if (power==="B_off" && z==="B") return true;
+  }
+  return false;
+}
+function parkTK(pos) { return "TK20" + pos[1]; }  // P3/2 → TK203
+function randTrans() { return Math.random()<0.5 ? "轉換軌上行" : "轉換軌下行"; }
+function mainTrans(toD) { return toD.includes("上行") ? "轉換軌上行" : "轉換軌下行"; }
+function isTransLoc(s) { return s==="轉換軌上行" || s==="轉換軌下行"; }
+
+/* ================== 建立回報點序列 ================== */
+/*
+  回報點結構：
+  {
+    loc:     位置字串，用於「[loc]，[車號]呼叫OCC，...」
+    report:  抵達時回報內容（不含位置前綴與OVER，例如「已停妥P2/4」、「已完成車外車底巡視，做好動車前準備」）
+    extra:   附加回報（例如「雙端電池(80/80%)」、「電壓800V」），可選
+    nextMode: OCC下段指示模式（例如「洗車連結模式」、「ESS模式」、「機廠模式」、「洗車連結模式及機廠模式」）
+    nextLoc: OCC下段指示目的地
+    nextDo:  抵達後要做什麼（例如「升弓回報」、「投入ESS模式回報」、「停妥將列車關機」）
+    confirm: OCC要求確認的項目陣列，預設=["前方號誌開通","轉轍器方位正確","臨軌無列車","軌道淨空"]
+    isFinal: 最後停妥點，無下段指令
+  }
+*/
+const DEFAULT_CONFIRM = ["前方號誌開通","轉轍器方位正確","臨軌無列車","軌道淨空"];
+const STARTUP_CONFIRM = []; // 起始動車前準備無「確認」項
+const ENTER_MAINT_CONFIRM = ["前方鐵門開啟","軌道淨空"]; // 維修廠棚外進入維修軌時
+
+function buildPoints(fromA, fromD, toA, toD, power) {
+  const pts = [];
+  const noPowerStart = isNoPower(fromA, fromD, power);
+  const noPowerEnd = isNoPower(toA, toD, power);
+
+  /* ---------- 1. 起始點 ---------- */
+  if (fromA === "park") {
+    if (noPowerStart) {
+      // ESS 起始：兩階段
+      pts.push({
+        loc: fromD,
+        report: "已完成車外車底巡視，將進入列車開機投入ESS模式，做好動車前準備後回報",
+        confirm: STARTUP_CONFIRM,
+        nextMode: null, nextLoc: null,
+        nextDo: "完成動車前準備",
+        _occOnlyPrep: true
+      });
+      pts.push({
+        loc: fromD,
+        report: "已開機並完成動車前準備",
+        extra: "雙端電池(80/80%)"
+      });
+    } else {
+      pts.push({
+        loc: fromD,
+        report: "已完成車外車底巡視，做好動車前準備",
+        confirm: STARTUP_CONFIRM
+      });
+    }
+  } else if (fromA === "maint") {
+    // 維修工廠起：開機必為 ESS
+    pts.push({
+      loc: fromD,
+      report: "已完成車外車底巡視，將進入列車開機投入ESS模式，做好動車前準備後回報",
+      confirm: STARTUP_CONFIRM,
+      _occOnlyPrep: true
+    });
+    pts.push({
+      loc: fromD,
+      report: "已開機並完成動車前準備",
+      extra: "雙端電池(80/80%)"
+    });
+  } else if (fromA === "trans") {
+    // 轉換軌起：由正線進入，已停妥並完成機廠模式/G01頻道切換
+    pts.push({
+      loc: fromD,
+      report: `已停妥${fromD}，切換機廠模式及G01頻道完成`
+    });
+  } else if (fromA === "wash") {
+    // 洗車軌起（洗車完畢後）
+    pts.push({
+      loc: "TK301",
+      report: "洗車作業已完畢"
+    });
+  }
+
+  /* ---------- 2. 路徑中繼點 ---------- */
+  // 2-1. 起點為駐車場且非 P_/4：須先行駛到 P_/4
+  if (fromA === "park" && fromD[3] !== "4") {
+    const pexit = `P${fromD[1]}/4`;
+    pts.push({
+      loc: pexit,
+      report: `已停妥${pexit}`
+    });
+  }
+
+  // 2-2. 起點為維修：棚外升弓
+  if (fromA === "maint") {
+    const shed = `${fromD}廠棚外`;
+    pts.push({
+      loc: shed,
+      report: `已停妥${shed}，升弓`,
+      extra: "電壓800V"
+    });
+  }
+
+  /* ---------- 3. 判斷是否經轉換軌 ---------- */
+  // 直達（不經轉換軌）：駐車↔維修、駐車↔同側洗車軌出口（洗車→駐車亦直達）
+  const directParkMaint = (fromA==="park" && toA==="maint") || (fromA==="maint" && toA==="park");
+  const washToPark = (fromA==="wash" && toA==="park");
+  // 已在轉換軌就不需再加一個轉換軌中繼點
+  const alreadyOnTrans = (fromA === "trans");
+  const needTransferTrack = !(directParkMaint || washToPark || alreadyOnTrans);
+
+  let transTK = null;
+  if (needTransferTrack) {
+    if (toA === "main") transTK = mainTrans(toD);
+    else if (toA === "trans") transTK = toD;
+    else if (fromA === "trans") transTK = fromD;
+    else transTK = randTrans();
+  }
+
+  // 3-1. 進轉換軌前中繼（若從維修工廠出發，必經駐車場，此處模擬短暫通過駐車場 P_/4 作為中繼；
+  //      但 OCC 實務未必分段指派此點，故與下一段合併為「行駛至轉換軌」）
+  //      為對話真實性，這裡不再額外拆點。
+
+  /* ---------- 4. 轉換軌點（若經過） ---------- */
+  if (needTransferTrack) {
+    const toMain = (toA === "main");
+    // 判斷抵達轉換軌時的回報
+    let transReport = `已停妥${transTK}`;
+    let transExtra = null;
+    // 是否換端：若不是出正線，則皆需換端
+    const needFlip = !toMain;
+    if (needFlip) transReport += "並完成換端";
+    pts.push({
+      loc: transTK,
+      report: transReport,
+      _afterTrans: true,
+      _toMain: toMain
+    });
+  }
+
+  /* ---------- 5. 目的地前棚外 ---------- */
+  if (toA === "park") {
+    const targetTK = parkTK(toD);
+    pts.push({
+      loc: `${targetTK}廠棚外`,
+      report: `已停妥${targetTK}廠棚外${noPowerEnd?"，並投入ESS模式":""}`,
+      extra: noPowerEnd ? "雙端電池(80/80%)" : null,
+      _beforePark: true
+    });
+  } else if (toA === "maint") {
+    pts.push({
+      loc: `${toD}廠棚外`,
+      report: `已停妥${toD}廠棚外，並投入ESS模式`,
+      extra: "雙端電池(80/80%)",
+      _beforeMaint: true
+    });
+  } else if (toA === "wash") {
+    // 洗車軌進入：直接由轉換軌切洗車連結模式駛入
+    // 不再加棚外點
+  }
+
+  /* ---------- 6. 終點 ---------- */
+  if (toA === "park") {
+    pts.push({
+      loc: toD,
+      report: `已停妥${toD}，並將列車關機`,
+      isFinal: true
+    });
+  } else if (toA === "maint") {
+    pts.push({
+      loc: `${toD}外側位置`,
+      report: `已停妥${toD}外側位置，並將列車關機`,
+      isFinal: true
+    });
+  } else if (toA === "wash") {
+    pts.push({
+      loc: "TK301",
+      report: "已抵達TK301洗車軌，開始洗車作業",
+      isFinal: true
+    });
+  } else if (toA === "trans") {
+    pts.push({
+      loc: toD,
+      report: `已停妥${toD}`,
+      isFinal: true
+    });
+  } else if (toA === "main") {
+    pts.push({
+      loc: "正線",
+      report: `已切換主線模式及All Station頻道，正駛出機廠進入${toD}`,
+      isFinal: true
+    });
+  }
+
+  /* ---------- 6.5 在機廠模式/洗車連結模式切換處插入速限牌回報點 ---------- */
+  const expanded = insertSpeedLimitPoints(pts);
+
+  /* ---------- 7. 補上各點的「下段指令」 ---------- */
+  for (let i = 0; i < expanded.length; i++) {
+    const cur = expanded[i];
+    const nxt = expanded[i+1];
+    if (!nxt) continue;
+    fillNextInstruction(cur, nxt, fromA, toA);
+  }
+
+  return expanded;
+}
+
+function insertSpeedLimitPoints(pts) {
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    out.push(pts[i]);
+    const cur = pts[i];
+    const nxt = pts[i+1];
+    if (!nxt) continue;
+    // 往機廠方向：轉換軌 → 棚外（駐車/維修），中間插入5公里速限牌
+    if (isTransLoc(cur.loc) && /廠棚外$/.test(nxt.loc)) {
+      out.push({
+        loc: "5公里速限牌",
+        report: "已停妥5公里速限牌，切換洗車連結模式完成",
+        _speedLimit: true
+      });
+    }
+    // 往出廠方向：P_/4 或 維修棚外 → 轉換軌，中間插入25公里速限牌
+    if ((/^P\d\/4$/.test(cur.loc) || /廠棚外$/.test(cur.loc)) && isTransLoc(nxt.loc)) {
+      out.push({
+        loc: "25公里速限牌",
+        report: "已停妥25公里速限牌，切換機廠模式完成",
+        _speedLimit: true
+      });
+    }
+  }
+  return out;
+}
+
+function fillNextInstruction(cur, nxt, fromA, toA) {
+  // 預設 confirm
+  if (!cur.confirm) cur.confirm = DEFAULT_CONFIRM;
+  // 特例：_occOnlyPrep 段只要求「完成動車前準備回報」
+  if (cur._occOnlyPrep) {
+    cur.nextMode = null;
+    cur.nextLoc = null;
+    cur.nextDo = "完成動車前準備";
+    cur.confirm = STARTUP_CONFIRM;
+    return;
+  }
+  cur.nextLoc = nxt.loc;
+
+  // 模式判定
+  if (nxt.loc === "5公里速限牌") {
+    cur.nextMode = "機廠模式";
+  } else if (nxt.loc === "25公里速限牌") {
+    cur.nextMode = "洗車連結模式";
+  } else if (cur.loc === "5公里速限牌") {
+    cur.nextMode = "洗車連結模式";
+  } else if (cur.loc === "25公里速限牌") {
+    cur.nextMode = "機廠模式";
+  } else if (isTransLoc(nxt.loc)) {
+    cur.nextMode = "機廠模式";
+  } else if (nxt.loc === "TK301") {
+    cur.nextMode = "洗車連結模式";
+  } else if (/^P\d\/\d$/.test(nxt.loc) || /外側位置$/.test(nxt.loc) || /廠棚外$/.test(nxt.loc)) {
+    cur.nextMode = "洗車連結模式";
+  } else if (nxt.loc === "正線") {
+    cur.nextMode = "主線模式";
+    cur.confirm = ["前方號誌開通","轉轍器方位正確","主線模式及All Station頻道切換完成"];
+  } else {
+    cur.nextMode = "機廠模式";
+  }
+
+  // 決定 nextDo（抵達後要做什麼）
+  if (nxt.loc === "5公里速限牌") {
+    cur.nextDo = "切換洗車連結模式回報";
+    cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
+  } else if (nxt.loc === "25公里速限牌") {
+    cur.nextDo = "切換機廠模式回報";
+    cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
+  } else if (nxt._beforeMaint) {
+    cur.nextDo = "投入ESS模式回報";
+    // 進維修棚外確認項
+    cur.confirm = ["前方號誌開通","轉轍器方位正確","臨軌無列車","軌道淨空"];
+  } else if (nxt._beforePark && /投入ESS/.test(nxt.report)) {
+    cur.nextDo = "投入ESS模式回報";
+  } else if (nxt._beforePark) {
+    cur.nextDo = "停妥回報";
+  } else if (nxt.isFinal && toA === "park") {
+    cur.nextDo = "停妥將列車關機";
+    // 進入最終駐車位：OCC 確認項加「鐵門/位置號牌」
+    cur.confirm = ["前方號誌開通","轉轍器方位正確","目標駐車位號牌"];
+  } else if (nxt.isFinal && toA === "maint") {
+    cur.nextDo = "停妥將列車關機";
+    cur.confirm = ["前方鐵門開啟","軌道淨空"];
+  } else if (nxt.isFinal && toA === "main") {
+    cur.nextDo = "切換主線模式及All Station頻道後駛出機廠";
+    cur.confirm = ["前方號誌開通","轉轍器方位正確"];
+  } else if (nxt.isFinal && toA === "trans") {
+    cur.nextDo = "停妥回報";
+  } else if (nxt.isFinal && toA === "wash") {
+    cur.nextDo = "進入洗車機洗車";
+    cur.confirm = ["前方號誌開通","轉轍器方位正確","洗車機雙燈綠燈"];
+  } else if (/^P\d\/4$/.test(nxt.loc)) {
+    cur.nextDo = "停妥回報";
+    // 駐車場內行駛：通常 OCC 不要求複雜確認
+    cur.confirm = [];
+  } else if (isTransLoc(nxt.loc)) {
+    const toMain = (toA === "main");
+    cur.nextDo = toMain ? "切換主線模式及All Station頻道後回報" : "停妥後換端回報";
+  } else if (/廠棚外$/.test(nxt.loc) && /^TK1/.test(nxt.loc)) {
+    cur.nextDo = "升弓回報";
+  }
+}
+
+/* ================== 產生對話 ================== */
+function makeChunks(trainId, pts) {
+  const chunks = [];
+  for (let i = 0; i < pts.length; i++) {
+    const cur = pts[i];
+    const nxt = pts[i+1];
+
+    // 當前點的 driver 呼叫
+    const extraStr = cur.extra ? `，${cur.extra}` : "";
+    const driverCall = `${cur.loc}，${trainId}車呼叫OCC，${cur.report}${extraStr}，OVER`;
+
+    if (cur.isFinal || !nxt) {
+      // 最終段：OCC 收到即可
+      chunks.push({
+        title: `【終點】${cur.loc}`,
+        isFinal: true,
+        lines: [
+          { who: "司機員", text: driverCall },
+          { who: "OCC",   text: `OCC收到，${trainId}車，${cur.report}${extraStr}。通話完畢。` }
+        ]
+      });
+      continue;
+    }
+
+    // 非最終：OCC 給下段指令
+    const modeStr = cur.nextMode ? `以${cur.nextMode}` : "";
+    const confirmStr = (cur.confirm && cur.confirm.length > 0) ? `請${trainId}車確認${cur.confirm.join("、")}，` : "";
+    const driveStr = (cur.nextMode && cur.nextLoc) ? `${modeStr}行駛至${cur.nextLoc}，` : "";
+    const doStr = cur.nextDo ? `${cur.nextDo}` : "";
+    const occReply = cur._occOnlyPrep
+      ? `OCC收到，${trainId}車，${cur.report}，請${trainId}車${cur.nextDo}回報。通話完畢。`
+      : `OCC收到，${trainId}車，${cur.report}${extraStr}，${confirmStr}${driveStr}${doStr}${doStr.endsWith("回報")?"":"回報"}。OVER`;
+
+    const readbackBody = cur._occOnlyPrep
+      ? `${cur.nextDo}回報`
+      : `${(cur.confirm&&cur.confirm.length>0)?"確認"+cur.confirm.join("、")+"，":""}${driveStr}${doStr}${doStr.endsWith("回報")?"":"回報"}`;
+    const readback = `${trainId}車收到，${readbackBody}，通話完畢。`;
+
+    chunks.push({
+      title: `【段 ${i+1}】${cur.loc} → ${cur.nextLoc||"（開機準備）"}`,
+      isFinal: false,
+      lines: [
+        { who: "司機員", text: driverCall },
+        { who: "OCC",   text: occReply },
+        { who: "司機員", text: readback }
+      ]
+    });
+  }
+  return chunks;
+}
+
+/* ================== UI ================== */
+function fillArea(sel, keys) {
+  sel.innerHTML = keys.map(k => `<option value="${k}">${AREAS[k].label}</option>`).join("");
+}
+function fillDetail(sel, areaKey) {
+  sel.innerHTML = AREAS[areaKey].items.map(v => `<option value="${v}">${v}</option>`).join("");
+}
+const fromArea = document.getElementById("fromArea");
+const fromDetail = document.getElementById("fromDetail");
+const toArea = document.getElementById("toArea");
+const toDetail = document.getElementById("toDetail");
+fillArea(fromArea, FROM_AREAS);
+fillArea(toArea, TO_AREAS);
+fillDetail(fromDetail, fromArea.value);
+fillDetail(toDetail, toArea.value);
+fromArea.addEventListener("change", () => fillDetail(fromDetail, fromArea.value));
+toArea.addEventListener("change", () => fillDetail(toDetail, toArea.value));
+
+function validate(fromA, fromD, toA, toD) {
+  if (fromA === toA && fromD === toD) return "起點與目的地相同。";
+  if (toA === "wash" && fromA !== "trans") return "洗車軌僅能由轉換軌進入（單向）。";
+  if (fromA === "wash" && toA !== "park") return "洗車軌出口僅通往駐車場（單向）。";
+  return null;
+}
+
+let currentChunks = [];
+let revealed = 0;
+
+function render() {
+  const box = document.getElementById("result");
+  const total = currentChunks.length;
+  if (total === 0) { box.innerHTML = ""; return; }
+  const progress = `<div class="progress">已顯示 ${revealed} / ${total} 段</div>`;
+  const shown = currentChunks.slice(0, revealed).map(c => chunkHtml(c)).join("");
+  const nextBtn = (revealed < total)
+    ? `<button id="nextBtn">繼續 — 已完成上段回報（第 ${revealed+1} 段）</button>`
+    : `<div class="hint">✓ 全部調車程序已完成。</div><button id="restartBtn" class="secondary">重新開始</button>`;
+  box.innerHTML = `<div class="card"><h2>無線電對話（分段式）</h2>${progress}${shown}${nextBtn}</div>`;
+  const nb = document.getElementById("nextBtn");
+  if (nb) nb.addEventListener("click", () => {
+    revealed++;
+    render();
+    const last = document.querySelectorAll(".chunk");
+    if (last.length) last[last.length-1].scrollIntoView({behavior:"smooth", block:"center"});
+  });
+  const rb = document.getElementById("restartBtn");
+  if (rb) rb.addEventListener("click", () => { revealed = 1; render(); });
+}
+
+function chunkHtml(c) {
+  const lines = c.lines.map(l => `<div class="line ${l.who==='司機員'?'driver':'occ'}"><span class="who">${l.who}</span><span class="text">${l.text}</span></div>`).join("");
+  return `<div class="chunk ${c.isFinal?'final':''}"><div class="chunk-title">${c.title}</div>${lines}</div>`;
+}
+
+document.getElementById("genBtn").addEventListener("click", () => {
+  const power = document.getElementById("powerState").value;
+  const trainId = (document.getElementById("trainId").value || "101").trim();
+  const fA = fromArea.value, fD = fromDetail.value;
+  const tA = toArea.value, tD = toDetail.value;
+  const err = validate(fA, fD, tA, tD);
+  const box = document.getElementById("result");
+  if (err) { box.innerHTML = `<div class="error">⚠ ${err}</div>`; return; }
+  const pts = buildPoints(fA, fD, tA, tD, power);
+  currentChunks = makeChunks(trainId, pts);
+  revealed = 1;
+  render();
+  box.scrollIntoView({behavior:"smooth", block:"start"});
+});
+</script>
+</body>
+</html>
