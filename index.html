@@ -303,14 +303,18 @@ function buildPoints(fromA, fromD, toA, toD, power) {
 
   // 2-2. 起點為維修：不在維修棚外升弓（維修無架空線），改於駐車場棚外才升弓（見 3.5 / 2-3）
 
-  // 2-3. 維修 → 駐車場（直達）：目標駐車軌棚外升弓（亦為進入 P_/y 的入口棚外）
+  // 2-3. 維修 → 駐車場（直達）：目標駐車軌棚外（視目標是否有電決定是否升弓）
   if (fromA === "maint" && toA === "park") {
     const targetTK = parkTK(toD);
+    const targetNoPower = isNoPower("park", toD, power);
     pts.push({
       loc: `${targetTK}廠棚外`,
-      report: `已停妥${targetTK}廠棚外，升弓`,
-      extra: "電壓800V",
-      _maintToParkShed: true
+      report: targetNoPower
+        ? `已停妥${targetTK}廠棚外，維持ESS模式`
+        : `已停妥${targetTK}廠棚外，升弓`,
+      extra: targetNoPower ? "雙端電池(80/80%)" : "電壓800V",
+      _maintToParkShed: true,
+      _targetNoPower: targetNoPower
     });
   }
 
@@ -383,7 +387,7 @@ function buildPoints(fromA, fromD, toA, toD, power) {
     if (!alreadyPushed) {
       pts.push({
         loc: expected,
-        report: `已停妥${expected}${noPowerEnd?"，並投入ESS模式":""}`,
+        report: `已停妥${expected}${noPowerEnd?"，降弓並投入ESS模式":""}`,
         extra: noPowerEnd ? "雙端電池(80/80%)" : null,
         _beforePark: true
       });
@@ -524,8 +528,8 @@ function fillNextInstruction(cur, nxt, fromA, toA) {
     cur.nextDo = "停妥升弓並完成換端回報";
     cur.confirm = ["前方號誌開通","轉轍器方位正確","鄰軌無列車","軌道淨空"];
   } else if (nxt._maintToParkShed) {
-    // 維修 → 駐車場 直達：自維修內出發 → 目標駐車場棚外升弓（離開維修有出口號誌）
-    cur.nextDo = "停妥升弓回報";
+    // 維修 → 駐車場 直達：維修已是 ESS；若目標軌斷電則維持 ESS 不升弓
+    cur.nextDo = nxt._targetNoPower ? "停妥維持ESS模式回報" : "停妥升弓回報";
     cur.confirm = ["前方號誌開通","轉轍器方位正確","鄰軌無列車","軌道淨空"];
   } else if (nxt._transit && /廠棚外$/.test(nxt.loc)) {
     // 轉換軌 → 5km 牌 → 駐車場棚外：駐車場棚外本身無號誌
@@ -536,7 +540,7 @@ function fillNextInstruction(cur, nxt, fromA, toA) {
     cur.nextDo = "投入ESS模式回報";
     cur.confirm = ["前方號誌開通","轉轍器方位正確","鄰軌無列車","軌道淨空"];
   } else if (nxt._beforePark && /投入ESS/.test(nxt.report)) {
-    cur.nextDo = "投入ESS模式回報";
+    cur.nextDo = "降弓並投入ESS模式回報";
     cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
   } else if (nxt._beforePark) {
     // 駐車場棚外本身無號誌
