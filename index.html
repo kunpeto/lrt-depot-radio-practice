@@ -202,11 +202,18 @@ function randTrans() { return Math.random()<0.5 ? "轉換軌上行" : "轉換軌
 function mainTrans(toD) { return toD.includes("上行") ? "轉換軌上行" : "轉換軌下行"; }
 function isTransLoc(s) { return s==="轉換軌上行" || s==="轉換軌下行"; }
 function pickTransitP4(power) {
-  // 選一條有電的駐車軌 P_/4 作為中繼換端點
   const all = [];
   if (power !== "all_off" && power !== "A_off") all.push("P1/4","P2/4");
   if (power !== "all_off" && power !== "B_off") all.push("P3/4","P4/4");
-  if (all.length === 0) all.push("P3/4"); // 全斷電情境預設
+  if (all.length === 0) all.push("P3/4");
+  return all[Math.floor(Math.random()*all.length)];
+}
+function pickTransitParkTK(power) {
+  // 選一條有電的駐車軌 TK (做為維修出廠升弓的中繼)
+  const all = [];
+  if (power !== "all_off" && power !== "A_off") all.push("TK201","TK202");
+  if (power !== "all_off" && power !== "B_off") all.push("TK203","TK204");
+  if (all.length === 0) all.push("TK203");
   return all[Math.floor(Math.random()*all.length)];
 }
 
@@ -294,13 +301,16 @@ function buildPoints(fromA, fromD, toA, toD, power) {
     });
   }
 
-  // 2-2. 起點為維修：棚外升弓
-  if (fromA === "maint") {
-    const shed = `${fromD}廠棚外`;
+  // 2-2. 起點為維修：不在維修棚外升弓（維修無架空線），改於駐車場棚外才升弓（見 3.5 / 2-3）
+
+  // 2-3. 維修 → 駐車場（直達）：目標駐車軌棚外升弓（亦為進入 P_/y 的入口棚外）
+  if (fromA === "maint" && toA === "park") {
+    const targetTK = parkTK(toD);
     pts.push({
-      loc: shed,
-      report: `已停妥${shed}，升弓`,
-      extra: "電壓800V"
+      loc: `${targetTK}廠棚外`,
+      report: `已停妥${targetTK}廠棚外，升弓`,
+      extra: "電壓800V",
+      _maintToParkShed: true
     });
   }
 
@@ -330,12 +340,14 @@ function buildPoints(fromA, fromD, toA, toD, power) {
   // 維修 → 轉換軌/正線/維修：出棚外升弓後，先到駐車場 P_/4 換端（若目標在另一側）
   const transitFromMaint = (fromA === "maint" && (toA === "trans" || toA === "main" || toA === "maint"));
   if (transitFromMaint) {
-    const zone = pickTransitP4(power);
+    const zoneTK = pickTransitParkTK(power);
     pts.push({
-      loc: zone,
-      report: `已停妥${zone}並完成換端`,
+      loc: `${zoneTK}廠棚外`,
+      report: `已停妥${zoneTK}廠棚外，升弓並完成換端`,
+      extra: "電壓800V",
       _transit: true,
-      _needFlip: true
+      _needFlip: true,
+      _maintDepShed: true
     });
   }
 
@@ -355,10 +367,10 @@ function buildPoints(fromA, fromD, toA, toD, power) {
   /* ---------- 4.5 轉換軌 → 維修：轉換軌後需先經駐車場 P_/4 ---------- */
   const transitFromTransToMaint = (fromA === "trans" && toA === "maint");
   if (transitFromTransToMaint) {
-    const zone = pickTransitP4(power);
+    const zoneTK = pickTransitParkTK(power);
     pts.push({
-      loc: zone,
-      report: `已停妥${zone}`,
+      loc: `${zoneTK}廠棚外`,
+      report: `已停妥${zoneTK}廠棚外`,
       _transit: true
     });
   }
@@ -366,12 +378,16 @@ function buildPoints(fromA, fromD, toA, toD, power) {
   /* ---------- 5. 目的地前棚外 ---------- */
   if (toA === "park") {
     const targetTK = parkTK(toD);
-    pts.push({
-      loc: `${targetTK}廠棚外`,
-      report: `已停妥${targetTK}廠棚外${noPowerEnd?"，並投入ESS模式":""}`,
-      extra: noPowerEnd ? "雙端電池(80/80%)" : null,
-      _beforePark: true
-    });
+    const expected = `${targetTK}廠棚外`;
+    const alreadyPushed = pts.some(p => p.loc === expected && p._maintToParkShed);
+    if (!alreadyPushed) {
+      pts.push({
+        loc: expected,
+        report: `已停妥${expected}${noPowerEnd?"，並投入ESS模式":""}`,
+        extra: noPowerEnd ? "雙端電池(80/80%)" : null,
+        _beforePark: true
+      });
+    }
   } else if (toA === "maint") {
     pts.push({
       loc: `${toD}廠棚外`,
@@ -472,7 +488,10 @@ function fillNextInstruction(cur, nxt, fromA, toA) {
   cur.nextLoc = nxt.loc;
 
   // 模式判定
-  if (nxt.loc === "5公里速限牌") {
+  if ((nxt._maintDepShed || nxt._maintToParkShed) && /^TK1/.test(cur.loc)) {
+    // 自維修工廠內部開出至駐車場棚外：ESS + 洗車連結模式
+    cur.nextMode = "ESS模式及洗車連結模式";
+  } else if (nxt.loc === "5公里速限牌") {
     cur.nextMode = "機廠模式";
   } else if (nxt.loc === "25公里速限牌") {
     cur.nextMode = "洗車連結模式";
@@ -500,6 +519,18 @@ function fillNextInstruction(cur, nxt, fromA, toA) {
   } else if (nxt.loc === "25公里速限牌") {
     cur.nextDo = "切換機廠模式回報";
     cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
+  } else if (nxt._maintDepShed) {
+    // 維修出廠：至駐車場棚外升弓並完成換端
+    cur.nextDo = "停妥升弓並完成換端回報";
+    cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
+  } else if (nxt._maintToParkShed) {
+    // 維修 → 駐車場 直達：至目標駐車場棚外升弓
+    cur.nextDo = "停妥升弓回報";
+    cur.confirm = ["轉轍器方位正確","鄰軌無列車","軌道淨空"];
+  } else if (nxt._transit && /廠棚外$/.test(nxt.loc)) {
+    // 轉換軌 → 維修 的中繼駐車場棚外（已升弓）
+    cur.nextDo = "停妥回報";
+    cur.confirm = ["前方號誌開通","轉轍器方位正確","鄰軌無列車","軌道淨空"];
   } else if (nxt._beforeMaint) {
     cur.nextDo = "投入ESS模式回報";
     // 進維修棚外確認項
